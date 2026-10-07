@@ -1,0 +1,22 @@
+# =============================================================================
+# Line endings
+# Store every text file with LF and check it out with LF on every OS.
+# Shell scripts, git hooks and Dockerfiles break with CRLF, and Linux CI must
+# see exactly the bytes a Windows checkout sees.
+# =============================================================================
+* text=auto eol=lf
+
+# cmd.exe batch files are the exception: they need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# =============================================================================
+# Binary files: no line-ending conversion, no text diffs
+# =============================================================================
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
