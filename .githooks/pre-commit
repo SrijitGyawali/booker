@@ -1,0 +1,76 @@
+#!/bin/sh
+#
+# booker pre-commit hook
+#
+# Blocks the mistakes that are hardest to undo once pushed:
+#   1. secret files (.env, private keys) and secret-looking values
+#   2. Go files that are not gofmt-formatted
+#
+# Enable once per clone:  make hooks
+#                    or:  git config core.hooksPath .githooks
+#
+# A secret that reaches GitHub must be rotated, not just deleted (SECURITY.md).
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+fail=0
+
+# --- 1. Secret files ---------------------------------------------------------
+# .env.example is the only env file allowed in git.
+secret_files=$(printf '%s\n' "$staged" \
+  | grep -E '(^|/)\.env(\..+)?$|(^|/)\.envrc$|\.(pem|key|p12|pfx)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$' \
+  | grep -vE '(^|/)\.env\.example$')
+
+if [ -n "$secret_files" ]; then
+  echo "pre-commit: these files usually contain secrets:" >&2
+  printf '%s\n' "$secret_files" | sed 's/^/    /' >&2
+  echo "  Keep real values in .env (git-ignored); commit empty keys in .env.example." >&2
+  fail=1
+fi
+
+# --- 2. Secret values in staged changes --------------------------------------
+# Private keys, AWS access key IDs, GitHub tokens, Google OAuth client secrets.
+# A full-history scan with gitleaks comes on Day 38; this is the fast first line.
+pattern='-----BEGIN ([A-Z]+ )*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|GOCSPX-[A-Za-z0-9_-]{20,}'
+
+leaky_files=$(printf '%s\n' "$staged" | while IFS= read -r file; do
+  [ "$file" = ".githooks/pre-commit" ] && continue
+  if git diff --cached -U0 -- "$file" | grep -E '^\+' | grep -qE -e "$pattern"; then
+    echo "$file"
+  fi
+done)
+
+if [ -n "$leaky_files" ]; then
+  echo "pre-commit: staged changes look like they contain a secret:" >&2
+  printf '%s\n' "$leaky_files" | sed 's/^/    /' >&2
+  echo "  Move the value to .env. If it was ever pushed, rotate it." >&2
+  fail=1
+fi
+
+# --- 3. gofmt ----------------------------------------------------------------
+go_files=$(printf '%s\n' "$staged" | grep -E '\.go$')
+
+if [ -n "$go_files" ]; then
+  if command -v gofmt >/dev/null 2>&1; then
+    unformatted=$(printf '%s\n' "$go_files" | while IFS= read -r file; do
+      gofmt -l "$file"
+    done)
+    if [ -n "$unformatted" ]; then
+      echo "pre-commit: these Go files are not gofmt-formatted (run: make fmt):" >&2
+      printf '%s\n' "$unformatted" | sed 's/^/    /' >&2
+      fail=1
+    fi
+  else
+    echo "pre-commit: gofmt not on PATH, skipping the format check." >&2
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo >&2
+  echo "Commit aborted. Fix the above, stage again and re-commit." >&2
+  echo "Bypass with 'git commit --no-verify' only for a confirmed false positive." >&2
+  exit 1
+fi
+
+exit 0
