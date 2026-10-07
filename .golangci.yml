@@ -1,0 +1,53 @@
+# golangci-lint v2 configuration: https://golangci-lint.run/usage/configuration/
+# Run it with `make lint` (or `golangci-lint run`).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - bodyclose      # HTTP response bodies are closed (Day 34: outgoing calls)
+    - errorlint      # errors.Is / errors.As instead of ==, %w wrapping (Day 18)
+    - gosec          # common security mistakes (Day 38)
+    - misspell       # typos in comments and strings
+    - noctx          # HTTP requests and DB calls carry a context (Days 5, 9)
+    - nolintlint     # every //nolint is specific and explained
+    - revive         # idiomatic Go style
+    - rowserrcheck   # rows.Err() is checked after iterating (Day 9)
+    - sqlclosecheck  # rows and statements are closed: pool exhaustion (Day 9)
+    - unconvert      # unnecessary type conversions
+  settings:
+    errcheck:
+      check-type-assertions: true
+    misspell:
+      locale: US
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Tests may use weak randomness, fixed temp paths and similar shortcuts
+      - path: _test\.go
+        linters:
+          - gosec
+    paths:
+      # Throwaway learning code is not held to production standards
+      - experiments/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      # Group booker's own imports after third-party ones
+      local-prefixes:
+        - github.com/SrijitGyawali/booker
