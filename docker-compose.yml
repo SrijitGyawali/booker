@@ -1,0 +1,68 @@
+# =============================================================================
+# Local infrastructure for booker
+# -----------------------------------------------------------------------------
+#   docker compose up -d --wait   start everything, wait until healthy
+#   docker compose ps             status and health
+#   docker compose down           stop (data is kept in named volumes)
+#   docker compose down -v        stop AND delete all local data
+#
+# Values come from .env (copy .env.example). Passwords have no defaults, so
+# Compose refuses to start without them instead of silently using a weak one.
+# Ports bind to 127.0.0.1 only: the databases are not reachable from the LAN.
+#
+# More services join on the day they are introduced: Mailpit (Day 24),
+# MinIO (35), Prometheus + Grafana (36), Jaeger (37), NATS (42), api and
+# worker images (46).
+# =============================================================================
+name: booker
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-booker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-booker}
+      # libpq defaults inside the container, so `docker compose exec postgres psql`
+      # and the healthcheck connect as the app user without extra flags.
+      PGUSER: ${POSTGRES_USER:-booker}
+      PGDATABASE: ${POSTGRES_DB:-booker}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18+ images keep data in a version-specific subdirectory
+      # (/var/lib/postgresql/18/docker), so the volume mounts the parent.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # Checks over TCP: the temporary server used during first-time init only
+      # listens on the Unix socket, so this turns healthy only once the real
+      # server accepts connections.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
+    environment:
+      # redis-cli reads this, so the healthcheck and
+      # `docker compose exec redis redis-cli` are authenticated automatically.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  redis-data:
